@@ -10,9 +10,11 @@
 
 enum options 
 {
-	OPT_DIR = 0x1
+	OPT_DIR = 0x1,
+	OPT_RECURSIVE = 0x2,
+	OPT_NULL = 0x4
 };
-int options;
+int options = 0;
 
 struct enode
 {
@@ -28,14 +30,11 @@ struct ent_vec
 	size_t size;
 };
 
-struct ent_vec ent_init(size_t size)
+void ent_init(struct ent_vec *self, size_t size)
 {
-	struct ent_vec ents;
-	ents.data = malloc(size * sizeof(struct enode));
-	ents.capacity = size;
-	ents.size = 0;
-
-	return ents;
+	self->data = malloc(size * sizeof(struct enode));
+	self->capacity = size;
+	self->size = 0;
 }
 
 void ent_resize(struct ent_vec *self, size_t size)
@@ -102,18 +101,15 @@ void ent_clear(struct ent_vec *self)
 	self->size = 0;
 }
 
-void ent_print(struct ent_vec *self)
+void enode_print(struct enode *ent)
 {
-	struct enode *ent = ent_beg(self);
+	puts(ent->name);
+}
 
-	while (ent != ent_end(self))
-	{
-		if (S_ISREG(ent->mode))
-		{
-			puts(ent->name);
-		}
-		ent++;
-	} 
+void enode_print0(struct enode *ent)
+{
+	printf("%s", ent->name);
+	putchar('\0');
 }
 
 void ent_glob(struct ent_vec *self, glob_t *globbuf)
@@ -173,6 +169,7 @@ void ent_recurse(struct ent_vec *self)
 int main(int argc, char *argv[])
 {
 	int opt;
+	size_t ind;
 	glob_t globbuf;
 	struct ent_vec ents;
 
@@ -184,9 +181,11 @@ int main(int argc, char *argv[])
 				options |= OPT_DIR;
 				break;
 			case 'r':
-			break;
+				options |= OPT_RECURSIVE;
+				break;
 			case 'z':
 			case '0':
+				options |= OPT_NULL;
 			break;
 			default:
 				abort();
@@ -194,15 +193,29 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	ents = ent_init(argc - optind);
+	ent_init(&ents, argc - optind);
 	ent_args(&ents, argc - optind, argv + optind);
 	ent_glob(&ents, &globbuf);
-	if (options & OPT_DIR)
+	if (options & OPT_RECURSIVE)
 	{	
 		ent_recurse(&ents);
 	}
-	ent_print(&ents);
+	for (ind = 0; ind < ents.size; ind++)
+	{
+		struct enode *ent = ent_at(&ents, ind);
+		if (!S_ISDIR(ent->mode) || (options & OPT_DIR))
+		{
+			if (options & OPT_NULL)
+			{
+				printf("%s", ent->name);
+				putchar('\0');
+			}
+			else
+			{
+				puts(ent->name);
+			}
+		}
+	}
 	ent_free(&ents);
-
 	globfree(&globbuf);
 }
