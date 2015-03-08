@@ -2,5 +2,7 @@ CC = gcc
 CFLAGS = -Wall
 LDFLAGS =
 
-: foreach *.c |> $(CC) -c %f -o %o $(CFLAGS) |> %B.o
+: foreach *.c |> $(CC) -c %f -o %o $(CFLAGS) |> %B.o 
 : *.o |> $(CC) %f -o %o $(LDFLAGS) |> pick
+
+.gitignore
