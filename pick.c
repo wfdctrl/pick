@@ -8,113 +8,133 @@
 #include <sys/types.h>
 #include <string.h>
 
+enum options 
+{
+	OPT_DIR = 0x1
+};
+int options;
+
 struct enode
 {
 	char *name;
-	struct enode *next;
 	mode_t mode;
 	bool owns_name;
-	bool root;
 };
 
-int count_ent(struct enode *ents)
+struct ent_vec
 {
-	struct enode *ent = ents;
-	int count = 0;
+	struct enode *data;
+	size_t capacity;
+	size_t size;
+};
 
-	while ((ent = ent->next) != NULL)
-	{
-		count++;
-	}
+struct ent_vec ent_init(size_t size)
+{
+	struct ent_vec ents;
+	ents.data = malloc(size * sizeof(struct enode));
+	ents.capacity = size;
+	ents.size = 0;
 
-	return count;
+	return ents;
 }
 
-struct enode *alloc_ent(int count)
+void ent_resize(struct ent_vec *self, size_t size)
 {
-	return malloc(count * sizeof(struct enode));
-}
-
-struct enode *realloc_ent(struct enode *ents, int count)
-{
-	if (count_ent(ents) < count)
+	if (self->capacity < size)
 	{
-		return realloc(ents, count * sizeof(struct enode));
-	}
-	else
-	{
-		return ents;
+		self->data = realloc(self->data, size * sizeof(struct enode));
+		self->capacity = size;
 	}
 }
 
-void free_ent(struct enode *ents)
+void ent_free(struct ent_vec *self)
 {
-	free(ents);
+	free(self->data);
 }
 
-void create_ent(struct enode *ents, int count, char *values[])
+struct enode *ent_beg(struct ent_vec *self)
 {
-	int ind;
+	return &self->data[0];
+}
+
+struct enode *ent_end(struct ent_vec *self)
+{
+	return &self->data[self->size];
+}
+
+struct enode *ent_at(struct ent_vec *self, size_t ind)
+{
+	return &self->data[ind];
+}
+
+void ent_add(struct ent_vec *self, struct enode ent)
+{
 	struct stat sb;
 
+	if (self->capacity < self->size + 1)
+	{
+		ent_resize(self, self->capacity + (self->size + 1) / 2);
+	}
+
+	stat(ent.name, &sb);
+	ent.mode = sb.st_mode;
+	self->data[self->size] = ent;
+	self->size++;
+}
+
+void ent_args(struct ent_vec *self, int count, char *values[])
+{
+	int ind;
+
+	ent_resize(self, (size_t)count);
 	for (ind = 0; ind < count; ind++)
 	{
-		struct enode *ent = &ents[ind];
-		ent->name = values[ind];
-		ent->owns_name = false;
-		stat(ent->name, &sb);
-		ent->mode = sb.st_mode;
+		struct enode ent;
+		ent.name = values[ind];
+		ent.owns_name = false;
 
-		if (ind != 0)
-		{
-			ents[ind - 1].next = ent;
-		}
+		ent_add(self, ent);
 	}
 }
 
-void print_ent(struct enode *ents)
+void ent_clear(struct ent_vec *self)
 {
-	struct enode *ent = ents;
+	self->size = 0;
+}
 
-	while (ent != NULL)
+void ent_print(struct ent_vec *self)
+{
+	struct enode *ent = ent_beg(self);
+
+	while (ent != ent_end(self))
 	{
-		puts(ent->name);
-		ent = ent->next;
+		if (S_ISREG(ent->mode))
+		{
+			puts(ent->name);
+		}
+		ent++;
 	} 
 }
 
-void print0_ent(struct enode *ents)
+void ent_glob(struct ent_vec *self, glob_t *globbuf)
 {
-	struct enode *ent = ents;
-
-	while (ent != NULL)
-	{
-		printf("%s", ent->name);
-		putchar('\0');
-		ent = ent->next;
-	}
-}
-
-void glob_ent(struct enode *ents, glob_t *globbuf)
-{
-	struct enode *ent = ents;
+	struct enode *ent = ent_beg(self);
 
 	glob(ent->name, GLOB_TILDE, NULL, globbuf);
-	while ((ent = ent->next) != NULL)
+	while (++ent != ent_end(self))
 	{
 		glob(ent->name, GLOB_TILDE | GLOB_APPEND, NULL, globbuf);
 	} 
-	realloc_ent(ents, globbuf->gl_pathc);
-	create_ent(ents, globbuf->gl_pathc, globbuf->gl_pathv);
+	ent_clear(self);
+	ent_args(self, globbuf->gl_pathc, globbuf->gl_pathv);
 }
 
-void readdir_ent(struct enode *ent)
+void readdir_ent(struct ent_vec *self, struct enode *ent)
 {
-//	if (!S_ISDIR(ents->mode)) return;
+	if (!S_ISDIR(ent->mode)) return;
 
 	char *path = ent->name;
 	int entc = 0;
-
 
 	struct dirent *dirent;
 	DIR *dir = opendir(path);
@@ -130,23 +150,14 @@ void readdir_ent(struct enode *ent)
 		strcat(name, "/");
 		strcat(name, dirent->d_name);
 
-		if (entc == 0)
-		{
-			ent->name = name;
-		}
-		else
-		{
-			struct enode *ent_new = alloc_ent(1);
-			ent_new->next = ent->next;
-			ent->next = ent_new;
-			ent_new->name = name;
-			ent_new->owns_name = true;
+		struct enode ent2;
+		ent2.name = name;
+		ent2.owns_name = true;
+		ent_add(self, ent2);
 
-			ent = ent_new;
-		}
 		if (dirent->d_type == DT_DIR)
 		{
-			readdir_ent(ent);
+			readdir_ent(self, ent_at(self, self->size - 1));
 		}
 
 		entc++;
@@ -154,32 +165,27 @@ void readdir_ent(struct enode *ent)
 	closedir(dir);
 }
 
-void recurse_ent(struct enode *ents)
+void ent_recurse(struct ent_vec *self)
 {
-	struct enode *ent = ents;
-
-	while (ent != NULL)
-	{
-		if(S_ISDIR(ent->mode))
-		{
-			readdir_ent(ent);
-		}
-		ent = ent->next;
-	} 
+	readdir_ent(self, ent_beg(self));
 }
 
 int main(int argc, char *argv[])
 {
 	int opt;
 	glob_t globbuf;
-	struct enode *ents;
+	struct ent_vec ents;
 
-	while ((opt = getopt(argc, argv, "r0")) != -1)
+	while ((opt = getopt(argc, argv, "drz0")) != -1)
 	{
 		switch (opt)
 		{
+			case 'd':
+				options |= OPT_DIR;
+				break;
 			case 'r':
 			break;
+			case 'z':
 			case '0':
 			break;
 			default:
@@ -188,12 +194,15 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	ents = alloc_ent(argc - optind);
-	create_ent(ents, argc - optind, argv + optind);
-	glob_ent(ents, &globbuf);
-	recurse_ent(ents);
-	print_ent(ents);
-	free_ent(ents);
+	ents = ent_init(argc - optind);
+	ent_args(&ents, argc - optind, argv + optind);
+	ent_glob(&ents, &globbuf);
+	if (options & OPT_DIR)
+	{	
+		ent_recurse(&ents);
+	}
+	ent_print(&ents);
+	ent_free(&ents);
 
 	globfree(&globbuf);
 }
