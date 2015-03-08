@@ -6,12 +6,15 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <string.h>
 
 struct enode
 {
 	char *name;
 	struct enode *next;
 	mode_t mode;
+	bool owns_name;
+	bool root;
 };
 
 int count_ent(struct enode *ents)
@@ -58,6 +61,7 @@ void create_ent(struct enode *ents, int count, char *values[])
 	{
 		struct enode *ent = &ents[ind];
 		ent->name = values[ind];
+		ent->owns_name = false;
 		stat(ent->name, &sb);
 		ent->mode = sb.st_mode;
 
@@ -72,20 +76,22 @@ void print_ent(struct enode *ents)
 {
 	struct enode *ent = ents;
 
-	while ((ent = ent->next) != NULL)
+	while (ent != NULL)
 	{
 		puts(ent->name);
-	}
+		ent = ent->next;
+	} 
 }
 
 void print0_ent(struct enode *ents)
 {
 	struct enode *ent = ents;
 
-	while ((ent = ent->next) != NULL)
+	while (ent != NULL)
 	{
 		printf("%s", ent->name);
 		putchar('\0');
+		ent = ent->next;
 	}
 }
 
@@ -97,14 +103,69 @@ void glob_ent(struct enode *ents, glob_t *globbuf)
 	while ((ent = ent->next) != NULL)
 	{
 		glob(ent->name, GLOB_TILDE | GLOB_APPEND, NULL, globbuf);
-	}
+	} 
 	realloc_ent(ents, globbuf->gl_pathc);
 	create_ent(ents, globbuf->gl_pathc, globbuf->gl_pathv);
 }
 
-struct enode *recurse_ent(struct enode *ents)
+void readdir_ent(struct enode *ent)
 {
+//	if (!S_ISDIR(ents->mode)) return;
 
+	char *path = ent->name;
+	int entc = 0;
+
+
+	struct dirent *dirent;
+	DIR *dir = opendir(path);
+
+	while ((dirent = readdir(dir)) != NULL)
+	{
+		if (dirent->d_name[0] == '.') 
+		{
+			continue;
+		}
+		char *name = malloc(strlen(path) + strlen(dirent->d_name) + 3);
+		strcpy(name, path);
+		strcat(name, "/");
+		strcat(name, dirent->d_name);
+
+		if (entc == 0)
+		{
+			ent->name = name;
+		}
+		else
+		{
+			struct enode *ent_new = alloc_ent(1);
+			ent_new->next = ent->next;
+			ent->next = ent_new;
+			ent_new->name = name;
+			ent_new->owns_name = true;
+
+			ent = ent_new;
+		}
+		if (dirent->d_type == DT_DIR)
+		{
+			readdir_ent(ent);
+		}
+
+		entc++;
+	}
+	closedir(dir);
+}
+
+void recurse_ent(struct enode *ents)
+{
+	struct enode *ent = ents;
+
+	while (ent != NULL)
+	{
+		if(S_ISDIR(ent->mode))
+		{
+			readdir_ent(ent);
+		}
+		ent = ent->next;
+	} 
 }
 
 int main(int argc, char *argv[])
@@ -130,6 +191,7 @@ int main(int argc, char *argv[])
 	ents = alloc_ent(argc - optind);
 	create_ent(ents, argc - optind, argv + optind);
 	glob_ent(ents, &globbuf);
+	recurse_ent(ents);
 	print_ent(ents);
 	free_ent(ents);
 
