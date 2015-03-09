@@ -145,7 +145,7 @@ void readdir_ent(struct ent_vec *self, struct enode *ent)
 	DIR *dir = opendir(path);
 	if (dir == NULL)
 	{
-		perror("opendir");
+		//perror("opendir");
 		//abort();
 		return;
 	}
@@ -162,12 +162,17 @@ void readdir_ent(struct ent_vec *self, struct enode *ent)
 	closedir(dir);
 }
 
-void ent_recurse(struct ent_vec *self)
+void ent_recurse(struct ent_vec *self, bool recurse)
 {
 	size_t ind;
+	size_t orig_size = self->size;
 	
 	for (ind = 0; ind < self->size; ind++)
 	{
+		if (!recurse && ind >= orig_size)
+		{
+			break;
+		}
 		readdir_ent(self, ent_at(self, ind));
 	}
 }
@@ -203,12 +208,16 @@ int main(int argc, char *argv[])
 	argv += optind;
 
 	ent_init(&ents, argc);
-	ent_args(&ents, argc, argv);
-	ent_glob(&ents, &globbuf);
-	if (options & OPT_RECURSIVE)
-	{	
-		ent_recurse(&ents);
+	if (argc == 0)
+	{
+		ent_add(&ents, "*", false);
 	}
+	else
+	{
+		ent_args(&ents, argc, argv);
+	}
+	ent_glob(&ents, &globbuf);
+	ent_recurse(&ents, options & OPT_RECURSIVE);
 	for (ind = 0; ind < ents.size; ind++)
 	{
 		struct enode *ent = ent_at(&ents, ind);
