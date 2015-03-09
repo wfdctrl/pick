@@ -125,6 +125,17 @@ void ent_glob(struct ent_vec *self, glob_t *globbuf)
 	ent_args(self, globbuf->gl_pathc, globbuf->gl_pathv);
 }
 
+/* Creates a path form two parts. Allocated memory must be freed manually. */
+char *join_path(char *part1, char *part2)
+{
+	char *path = malloc(strlen(part1) + strlen(part2) + 3);
+	strcpy(path, part1);
+	strcat(path, "/");
+	strcat(path, part2);
+
+	return path;
+}
+
 void readdir_ent(struct ent_vec *self, struct enode *ent)
 {
 	if (!S_ISDIR(ent->mode)) return;
@@ -145,12 +156,8 @@ void readdir_ent(struct ent_vec *self, struct enode *ent)
 		{
 			continue;
 		}
-		char *name = malloc(strlen(path) + strlen(dirent->d_name) + 3);
-		strcpy(name, path);
-		strcat(name, "/");
-		strcat(name, dirent->d_name);
 
-		ent_add(self, name, true);
+		ent_add(self, join_path(path, dirent->d_name), true);
 	}
 	closedir(dir);
 }
@@ -191,9 +198,12 @@ int main(int argc, char *argv[])
 				
 		}
 	}
+	/* process other arguments */
+	argc -= optind;
+	argv += optind;
 
-	ent_init(&ents, argc - optind);
-	ent_args(&ents, argc - optind, argv + optind);
+	ent_init(&ents, argc);
+	ent_args(&ents, argc, argv);
 	ent_glob(&ents, &globbuf);
 	if (options & OPT_RECURSIVE)
 	{	
