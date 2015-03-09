@@ -66,7 +66,7 @@ struct enode *ent_at(struct ent_vec *self, size_t ind)
 	return &self->data[ind];
 }
 
-void ent_add(struct ent_vec *self, struct enode ent)
+void ent_add(struct ent_vec *self, char *name, bool owns_name)
 {
 	struct stat sb;
 
@@ -75,8 +75,12 @@ void ent_add(struct ent_vec *self, struct enode ent)
 		ent_resize(self, self->capacity + (self->size + 1) / 2);
 	}
 
-	stat(ent.name, &sb);
+	struct enode ent;
+	ent.name = name;
+	ent.owns_name = owns_name;
+	lstat(ent.name, &sb);
 	ent.mode = sb.st_mode;
+
 	self->data[self->size] = ent;
 	self->size++;
 }
@@ -88,11 +92,7 @@ void ent_args(struct ent_vec *self, int count, char *values[])
 	ent_resize(self, (size_t)count);
 	for (ind = 0; ind < count; ind++)
 	{
-		struct enode ent;
-		ent.name = values[ind];
-		ent.owns_name = false;
-
-		ent_add(self, ent);
+		ent_add(self, values[ind], false);
 	}
 }
 
@@ -128,16 +128,20 @@ void ent_glob(struct ent_vec *self, glob_t *globbuf)
 void readdir_ent(struct ent_vec *self, struct enode *ent)
 {
 	if (!S_ISDIR(ent->mode)) return;
-
 	char *path = ent->name;
-	int entc = 0;
 
 	struct dirent *dirent;
 	DIR *dir = opendir(path);
+	if (dir == NULL)
+	{
+		perror("opendir");
+		//abort();
+		return;
+	}
 
 	while ((dirent = readdir(dir)) != NULL)
 	{
-		if (dirent->d_name[0] == '.') 
+		if (!strcmp(dirent->d_name, ".") || !strcmp(dirent->d_name, ".."))
 		{
 			continue;
 		}
@@ -146,24 +150,19 @@ void readdir_ent(struct ent_vec *self, struct enode *ent)
 		strcat(name, "/");
 		strcat(name, dirent->d_name);
 
-		struct enode ent2;
-		ent2.name = name;
-		ent2.owns_name = true;
-		ent_add(self, ent2);
-
-		if (dirent->d_type == DT_DIR)
-		{
-			readdir_ent(self, ent_at(self, self->size - 1));
-		}
-
-		entc++;
+		ent_add(self, name, true);
 	}
 	closedir(dir);
 }
 
 void ent_recurse(struct ent_vec *self)
 {
-	readdir_ent(self, ent_beg(self));
+	size_t ind;
+	
+	for (ind = 0; ind < self->size; ind++)
+	{
+		readdir_ent(self, ent_at(self, ind));
+	}
 }
 
 int main(int argc, char *argv[])
