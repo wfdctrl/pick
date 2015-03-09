@@ -1,18 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <glob.h>
 #include <dirent.h>
-#include <stdbool.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <string.h>
 
 enum options 
 {
 	OPT_DIR = 0x1,
 	OPT_RECURSIVE = 0x2,
-	OPT_NULL = 0x4
+	OPT_NULL = 0x4,
+	OPT_FILE = 0x8,
+	OPT_LINK = 0x10
 };
 int options = 0;
 
@@ -136,7 +138,7 @@ char *join_path(char *part1, char *part2)
 	return path;
 }
 
-void readdir_ent(struct ent_vec *self, struct enode *ent)
+void ent_scan_dir(struct ent_vec *self, struct enode *ent)
 {
 	if (!S_ISDIR(ent->mode)) return;
 	char *path = ent->name;
@@ -162,7 +164,7 @@ void readdir_ent(struct ent_vec *self, struct enode *ent)
 	closedir(dir);
 }
 
-void ent_recurse(struct ent_vec *self, bool recurse)
+void ent_scan(struct ent_vec *self, bool recurse)
 {
 	size_t ind;
 	size_t orig_size = self->size;
@@ -173,7 +175,7 @@ void ent_recurse(struct ent_vec *self, bool recurse)
 		{
 			break;
 		}
-		readdir_ent(self, ent_at(self, ind));
+		ent_scan_dir(self, ent_at(self, ind));
 	}
 }
 
@@ -184,12 +186,18 @@ int main(int argc, char *argv[])
 	glob_t globbuf;
 	struct ent_vec ents;
 
-	while ((opt = getopt(argc, argv, "drz0")) != -1)
+	while ((opt = getopt(argc, argv, "fdlrz0")) != -1)
 	{
 		switch (opt)
 		{
+			case 'f':
+				options |= OPT_FILE;
+				break;
 			case 'd':
 				options |= OPT_DIR;
+				break;
+			case 'l':
+				options |= OPT_LINK;
 				break;
 			case 'r':
 				options |= OPT_RECURSIVE;
@@ -217,11 +225,14 @@ int main(int argc, char *argv[])
 		ent_args(&ents, argc, argv);
 	}
 	ent_glob(&ents, &globbuf);
-	ent_recurse(&ents, options & OPT_RECURSIVE);
+	ent_scan(&ents, options & OPT_RECURSIVE);
 	for (ind = 0; ind < ents.size; ind++)
 	{
 		struct enode *ent = ent_at(&ents, ind);
-		if (!S_ISDIR(ent->mode) || (options & OPT_DIR))
+		if (((options & OPT_DIR) && (options & OPT_FILE) && (options && OPT_LINK)) ||
+				((!S_ISDIR(ent->mode) || (options & OPT_DIR)) && 
+				(!S_ISREG(ent->mode) || (options & OPT_FILE)) &&
+				(!S_ISLNK(ent->mode) || (options & OPT_LINK))))
 		{
 			if (options & OPT_NULL)
 			{
