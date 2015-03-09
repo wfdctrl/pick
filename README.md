@@ -1,1 +1,3 @@
-Pick - missing Linux core utility
+#pick - ls for machine consumption#
+
+Work in progress. Interface may change.
